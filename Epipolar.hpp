@@ -9,6 +9,7 @@
 
 #include "Camera.hpp"
 
+#include <iostream>
 #include <algorithm>
 #include <vector>
 #include <numeric>
@@ -30,7 +31,7 @@ std::vector<int> random_index(int size){
 Eigen::Vector3f triangulate(Eigen::Vector3f ray0, Eigen::Vector3f ray1, Eigen::Vector3f t){
     // triangulate point with mid point method
 
-    // Get ray and optical centers of cameras in world coordinates
+    // Get ray and optical centers of cameras
     Eigen::Matrix3f S = Eigen::Matrix3f::Zero();
     Eigen::Vector3f C(0,0,0);
 
@@ -56,12 +57,12 @@ Eigen::Vector3f triangulate(Eigen::Vector3f ray0, Eigen::Vector3f ray1, Eigen::V
     S += A;
     C += A*o;
 
-    // Process landmark pose in camera frame x in front !
+    // Process landmark pose in camera frame 
     Eigen::Vector3f position = S.inverse()*C;
     return position;
 }
 
-void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3f &t, Eigen::Matrix3f &R){
+void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3f &t, Eigen::Matrix3f &R, std::vector<int> inliers){
     // recover displacement from E
     // We then have x2 = Rx1 + t
     Eigen::JacobiSVD<Eigen::MatrixXf> svd_2(E, Eigen::ComputeThinU | Eigen::ComputeThinV);
@@ -77,12 +78,15 @@ void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_m
     // Let's see if we have positive or negative depth
     float avg_depth = 0;
     for (int i=0; i < (int)kp_1_matched.size(); i++){
+        if (inliers[i] == 0){
+            continue;
+        }
         Eigen::Vector3f lmk;
         float u0 = kp_1_matched[i].x;
         float v0 = kp_1_matched[i].y;
         float u1 = kp_2_matched[i].x;
         float v1 = kp_2_matched[i].y;
-        lmk = triangulate(cam.getRay(u0, v0), cam.getRay(u1, v1), t);
+        lmk = triangulate(cam.getRay(Eigen::Vector2f(u0, v0)), cam.getRay(Eigen::Vector2f(u1, v1)), t);
         avg_depth = avg_depth + lmk(2);
     }
     if (avg_depth < 0){
@@ -97,12 +101,15 @@ void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_m
 
         // Let's see if we have positive or negative depth
         for (int i=0; i < (int)kp_1_matched.size(); i++){
+            if (inliers[i] == 0){
+                continue;
+            }
             Eigen::Vector3f lmk;
             float u0 = kp_1_matched[i].x;
             float v0 = kp_1_matched[i].y;
             float u1 = kp_2_matched[i].x;
             float v1 = kp_2_matched[i].y;
-            lmk = triangulate(cam.getRay(u0, v0), cam.getRay(u1, v1), t);
+            lmk = triangulate(cam.getRay(Eigen::Vector2f(u0, v0)), cam.getRay(Eigen::Vector2f(u1, v1)), t);
         }
     }
 }
@@ -127,8 +134,8 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
             cv::Point2f x1 = kp_1_matched[index_list[i]];
             cv::Point2f x2 = kp_2_matched[index_list[i]];
             
-            Eigen::Vector3f x1v = cam.getRay(x1.x, x2.y);
-            Eigen::Vector3f x2v = cam.getRay(x2.x, x2.y);
+            Eigen::Vector3f x1v = cam.getRay(Eigen::Vector2f(x1.x, x1.y));
+            Eigen::Vector3f x2v = cam.getRay(Eigen::Vector2f(x2.x, x2.y));
 
             A.col(i) << x1v.x()*x2v.x(), x2v.x()*x1v.y(), x2v.x()*1,
                         x2v.y()*x1v.x(), x2v.y()*x1v.y(), x2v.y()*1,
@@ -154,19 +161,25 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
                 0, 1, 0,
                 0, 0, 0;
 
-        E = svd_1.matrixU() * SIGMA * svd_1.matrixV();
+        E = svd_1.matrixU() * SIGMA * svd_1.matrixV().transpose();
 
         // Step 3: Check inliers
         float score;
         int nb_inliers = 0;
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
-            cv::Point2f x1 = kp_1_matched[index_list[i]];
-            cv::Point2f x2 = kp_2_matched[index_list[i]];
+            cv::Point2f x1 = kp_1_matched[i];
+            cv::Point2f x2 = kp_2_matched[i];
 
-            Eigen::Vector3f x1v = cam.getRay(x1.x, x2.y);
-            Eigen::Vector3f x2v = cam.getRay(x2.x, x2.y);
+            Eigen::Vector3f x1v = cam.getRay(Eigen::Vector2f(x1.x, x1.y));
+            Eigen::Vector3f x2v = cam.getRay(Eigen::Vector2f(x2.x, x2.y));
 
-            score = std::abs(x2v.transpose() * E * x1v);
+            // Score computed with Sampson's error
+            score = std::abs(x2v.transpose() * E * x1v) / std::sqrt(
+                (x2v.transpose() * E)(0) * (x2v.transpose() * E)(0) +
+                (x2v.transpose() * E)(1) * (x2v.transpose() * E)(1) +
+                (E * x1v)(0) * (E * x1v)(0) +
+                (E * x1v)(1) * (E * x1v)(1));
+
             if (score < threshold){
                 nb_inliers++;
                 inliers_iter.push_back(1);

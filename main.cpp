@@ -46,7 +46,7 @@ int main(int argc, char** argv){
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
 
     //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
-    cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create();
+    cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create(2000);
     std::vector<cv::KeyPoint> keypoints_1, keypoints_2;
     cv::Mat descriptors_1, descriptors_2;
     detector->detectAndCompute( img_1, cv::Mat(), keypoints_1, descriptors_1 );
@@ -102,7 +102,7 @@ int main(int argc, char** argv){
     // recover displacement from E
     Eigen::Matrix3f R;
     Eigen::Vector3f t;
-    recoverPose(best_E, cam, kp_1_matched, kp_2_matched, t, R);
+    recoverPose(best_E, cam, kp_1_matched, kp_2_matched, t, R, inliers);
     std::cout << "Translation" << std::endl;
     std::cout << t << std::endl;
 
@@ -118,7 +118,7 @@ int main(int argc, char** argv){
     cv::Mat K_cv = (cv::Mat_<float>(3,3) << K(0,0), 0, K(0,2),
                0, K(1,1), K(1,2),
                0, 0, 1);  
-    cv::recoverPose(E_cv, kp_1_matched, kp_2_matched, K_cv, R_cv, t_cv);
+    cv::recoverPose(E_cv, kp_1_matched, kp_2_matched, K_cv, R_cv, t_cv, cvMask);
     std::cout << "Open CV essential Matrix" << std::endl;
     std::cout << E_cv << std::endl;
     std::cout << "Associated translation" << std::endl;
