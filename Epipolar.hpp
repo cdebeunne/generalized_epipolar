@@ -107,14 +107,16 @@ void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_m
     }
 }
 
-void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Camera &cam, Eigen::Matrix3f &best_E, float threshold){
+void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Camera &cam, Eigen::Matrix3f &best_E, float threshold, std::vector<int> &inliers){
     int best_number_of_inliers = 0;
     float w = 0.5;
     float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
+    std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
     for( int k=0; k<T; k++){
 
-        std::vector<int> index_list = random_index((int)kp_1_matched.size()); 
+        std::vector<int> index_list = random_index((int)kp_1_matched.size());
+        inliers_iter.clear(); 
 
         // Let's find the essential matrix with the 8 points algorithm
         
@@ -165,13 +167,19 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
             Eigen::Vector3f x2v = cam.getRay(x2.x, x2.y);
 
             score = std::abs(x2v.transpose() * E * x1v);
-            if (score < threshold) nb_inliers++;
+            if (score < threshold){
+                nb_inliers++;
+                inliers_iter.push_back(1);
+            } else{
+                inliers_iter.push_back(0);
+            }
         }
         
         // Step 4: Update the Essential Matrix
         if (nb_inliers > best_number_of_inliers){
             best_number_of_inliers = nb_inliers;
             best_E = E;
+            inliers = inliers_iter;
         }
 
         // Step 5: Recompute T

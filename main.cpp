@@ -39,8 +39,8 @@ int main(int argc, char** argv){
     cv::Point2f principal_pt(K(0,2), K(1,2));
     Camera cam(K);
 
-    std::string image_path0 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
-    std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
+    std::string image_path0 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
+    std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
@@ -75,22 +75,23 @@ int main(int argc, char** argv){
     cv::drawMatches( img_1, keypoints_1, img_2, keypoints_2, good_matches, img_matches, cv::Scalar::all(-1),
                 cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
     //-- Show detected matches
-    imshow( "Good Matches", img_matches );
+    // imshow( "Good Matches", img_matches );
     for( int i = 0; i < (int)good_matches.size(); i++ )
     {
         printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx );
         kp_1_matched.push_back(keypoints_1[good_matches[i].queryIdx].pt);
         kp_2_matched.push_back(keypoints_2[good_matches[i].queryIdx].pt);
     }
-    cv::waitKey(0);
+    // cv::waitKey(0);
 
     // Threshold for RANSAC
     double thresh = std::atof(argv[1]);
     Eigen::Matrix3f best_E;
+    std::vector<int> inliers;
     std::cout << "threshold :" << thresh << std::endl;
 
     timer.start();
-    EssentialRANSAC(kp_1_matched, kp_2_matched, cam, best_E, thresh);
+    EssentialRANSAC(kp_1_matched, kp_2_matched, cam, best_E, thresh, inliers);
     timer.stop();
 
     std::cout << "Elapsed time" << std::endl;
