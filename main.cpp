@@ -11,13 +11,14 @@
 #include "eigen3/Eigen/QR"
 #include "eigen3/Eigen/SVD"
 
-#include "Camera.hpp"
+#include "ASensor.hpp"
 #include "Timer.hpp"
 #include "Epipolar.hpp"
 
 #include <iostream>
 #include <cstdlib>
 #include <algorithm>
+#include <memory>
 #include <vector>
 #include <numeric>
 #include <random>
@@ -31,22 +32,24 @@ int main(int argc, char** argv){
     Timer timer;
 
     // initialize K
-    Eigen::Matrix3f K;
+    Eigen::Matrix3d K;
     K << 458.654, 0, 367.215,
          0, 457.296, 248.375,
          0, 0, 1;
     double focal_length = K(0);
-    cv::Point2f principal_pt(K(0,2), K(1,2));
-    Camera cam(K);
+    cv::Point2d principal_pt(K(0,2), K(1,2));
+    std::shared_ptr<ASensor> cam(new ASensor(K));
+    
 
     std::string image_path0 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
-    std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
+    //std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
+    std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam1/data/1403636579763555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
 
     //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
-    cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create(2000);
+    cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create(1000);
     std::vector<cv::KeyPoint> keypoints_1, keypoints_2;
     cv::Mat descriptors_1, descriptors_2;
     detector->detectAndCompute( img_1, cv::Mat(), keypoints_1, descriptors_1 );
@@ -86,12 +89,38 @@ int main(int argc, char** argv){
 
     // Threshold for RANSAC
     double thresh = std::atof(argv[1]);
-    Eigen::Matrix3f best_E;
+    Eigen::Matrix3d best_E;
+    Eigen::Matrix3d R;
+    Eigen::Vector3d t;
     std::vector<int> inliers;
     std::cout << "threshold :" << thresh << std::endl;
 
     timer.start();
     EssentialRANSAC(kp_1_matched, kp_2_matched, cam, best_E, thresh, inliers);
+
+    // Retrieve inliers
+    std::vector<cv::Point2d> kp_1_matched_filtered;
+    std::vector<cv::Point2d> kp_2_matched_filtered;
+    for( int i = 0; i < (int)kp_1_matched.size(); i++ ){
+        if (inliers[i] == 1){
+            kp_1_matched_filtered.push_back(kp_1_matched[i]);
+            kp_2_matched_filtered.push_back(kp_2_matched[i]);
+        }
+    }
+    // recoverPose(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
+
+    // // Retrieve inliers
+    // std::vector<cv::Point2d> kp_1_matched_filtered_2;
+    // std::vector<cv::Point2d> kp_2_matched_filtered_2;
+    // for( int i = 0; i < (int)kp_1_matched_filtered.size(); i++ ){
+    //     if (inliers[i] == 1){
+    //         kp_1_matched_filtered_2.push_back(kp_1_matched_filtered[i]);
+    //         kp_2_matched_filtered_2.push_back(kp_2_matched_filtered[i]);
+    //     }
+    // }
+
+    inliers.clear();
+    EssentialRANSAC(kp_1_matched_filtered, kp_2_matched_filtered, cam, best_E, thresh, inliers);
     timer.stop();
 
     std::cout << "Elapsed time" << std::endl;
@@ -100,11 +129,9 @@ int main(int argc, char** argv){
     std::cout << best_E << std::endl;
 
     // recover displacement from E
-    Eigen::Matrix3f R;
-    Eigen::Vector3f t;
-    recoverPose(best_E, cam, kp_1_matched, kp_2_matched, t, R, inliers);
-    std::cout << "Translation" << std::endl;
-    std::cout << t << std::endl;
+    recoverPose(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
+    std::cout << "Rotation" << std::endl;
+    std::cout << R << std::endl;
 
     // Compare with opencv
     cv::Mat cvMask;
@@ -121,8 +148,8 @@ int main(int argc, char** argv){
     cv::recoverPose(E_cv, kp_1_matched, kp_2_matched, K_cv, R_cv, t_cv, cvMask);
     std::cout << "Open CV essential Matrix" << std::endl;
     std::cout << E_cv << std::endl;
-    std::cout << "Associated translation" << std::endl;
-    std::cout << t_cv << std::endl;
+    std::cout << "Associated Rotation" << std::endl;
+    std::cout << R_cv << std::endl;
 
     return 0;
 

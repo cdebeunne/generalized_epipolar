@@ -7,12 +7,13 @@
 #include "eigen3/Eigen/QR"
 #include "eigen3/Eigen/SVD"
 
-#include "Camera.hpp"
+#include "ASensor.hpp"
 
 #include <iostream>
 #include <algorithm>
 #include <vector>
 #include <numeric>
+#include <memory>
 #include <random>
 
 
@@ -28,16 +29,16 @@ std::vector<int> random_index(int size){
     return index_list;
 }
 
-Eigen::Vector3f triangulate(Eigen::Vector3f ray0, Eigen::Vector3f ray1, Eigen::Vector3f t){
+Eigen::Vector3d triangulate(Eigen::Vector3d ray0, Eigen::Vector3d ray1, Eigen::Vector3d t){
     // triangulate point with mid point method
 
     // Get ray and optical centers of cameras
-    Eigen::Matrix3f S = Eigen::Matrix3f::Zero();
-    Eigen::Vector3f C(0,0,0);
+    Eigen::Matrix3d S = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d C(0,0,0);
 
     // Process the rays
-    Eigen::Matrix3f A;
-    Eigen::Vector3f o;
+    Eigen::Matrix3d A;
+    Eigen::Vector3d o;
 
     // ray cam 0
     A <<
@@ -58,21 +59,22 @@ Eigen::Vector3f triangulate(Eigen::Vector3f ray0, Eigen::Vector3f ray1, Eigen::V
     C += A*o;
 
     // Process landmark pose in camera frame 
-    Eigen::Vector3f position = S.inverse()*C;
+    Eigen::Vector3d position = S.inverse()*C;
     return position;
 }
 
-void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3f &t, Eigen::Matrix3f &R, std::vector<int> inliers){
+void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
     // recover displacement from E
     // We then have x2 = Rx1 + t
-    Eigen::JacobiSVD<Eigen::MatrixXf> svd_2(E, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    Eigen::Matrix3f Rzp;
-    Rzp << 0, 1, 0,
-        -1, 0, 0,
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd_2(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d Rzp;
+    Rzp << 0, -1, 0,
+        1, 0, 0,
         0, 0, 1;
+    std::vector<int> new_inliers;
     
-    R = svd_2.matrixU() * Rzp.transpose() * svd_2.matrixV();
-    Eigen::Matrix3f tx = svd_2.matrixU() * Rzp * svd_2.singularValues().asDiagonal() * svd_2.matrixU();
+    R = svd_2.matrixU() * Rzp.transpose() * svd_2.matrixV().transpose();
+    Eigen::Matrix3d tx = svd_2.matrixU() * Rzp * svd_2.singularValues().asDiagonal() * svd_2.matrixU().transpose();
     t << tx(2,1), tx(0,2), tx(1,0);
 
     // Let's see if we have positive or negative depth
@@ -81,43 +83,57 @@ void recoverPose(Eigen::Matrix3f E, Camera &cam, std::vector<cv::Point2d> kp_1_m
         if (inliers[i] == 0){
             continue;
         }
-        Eigen::Vector3f lmk;
         float u0 = kp_1_matched[i].x;
         float v0 = kp_1_matched[i].y;
         float u1 = kp_2_matched[i].x;
         float v1 = kp_2_matched[i].y;
-        lmk = triangulate(cam.getRay(Eigen::Vector2f(u0, v0)), cam.getRay(Eigen::Vector2f(u1, v1)), t);
+        Eigen::Vector3d lmk = triangulate(cam->getRay(Eigen::Vector2d(u0, v0)), cam->getRay(Eigen::Vector2d(u1, v1)), t);
         avg_depth = avg_depth + lmk(2);
+
+        // check inlier
+        if(lmk(2) < 0){
+            new_inliers.push_back(0);
+        } else{
+            new_inliers.push_back(1);
+        }
     }
     if (avg_depth < 0){
-        Eigen::Matrix3f Rzm;
-        Rzm << 0, -1, 0,
-            1, 0, 0,
+        Eigen::Matrix3d Rzm;
+        Rzm << 0, 1, 0,
+            -1, 0, 0,
             0, 0, 1;
         
-        R = svd_2.matrixU() * Rzm.transpose() * svd_2.matrixV();
-        tx = svd_2.matrixU() * Rzm * svd_2.singularValues().asDiagonal() * svd_2.matrixU();
+        R = svd_2.matrixU() * Rzm.transpose() * svd_2.matrixV().transpose();
+        tx = svd_2.matrixU() * Rzm * svd_2.singularValues().asDiagonal() * svd_2.matrixU().transpose();
         t << tx(2,1), tx(0,2), tx(1,0);
 
         // Let's see if we have positive or negative depth
+        new_inliers.clear();
         for (int i=0; i < (int)kp_1_matched.size(); i++){
             if (inliers[i] == 0){
                 continue;
             }
-            Eigen::Vector3f lmk;
             float u0 = kp_1_matched[i].x;
             float v0 = kp_1_matched[i].y;
             float u1 = kp_2_matched[i].x;
             float v1 = kp_2_matched[i].y;
-            lmk = triangulate(cam.getRay(Eigen::Vector2f(u0, v0)), cam.getRay(Eigen::Vector2f(u1, v1)), t);
+            Eigen::Vector3d lmk = triangulate(cam->getRay(Eigen::Vector2d(u0, v0)), cam->getRay(Eigen::Vector2d(u1, v1)), t);
+
+            // check inlier
+            if(lmk(2) < 0){
+                new_inliers.push_back(0);
+            } else{
+                new_inliers.push_back(1);
+            }
         }
     }
+    inliers = new_inliers;
 }
 
-void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Camera &cam, Eigen::Matrix3f &best_E, float threshold, std::vector<int> &inliers){
+void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E, float threshold, std::vector<int> &inliers){
     int best_number_of_inliers = 0;
     float w = 0.5;
-    float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
+    float T = std::log(1-0.9999)/std::log(1-std::pow(w, 8));
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
     for( int k=0; k<T; k++){
@@ -127,36 +143,42 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
 
         // Let's find the essential matrix with the 8 points algorithm
         
-        Eigen::MatrixXf A = Eigen::MatrixXf::Zero(9,8);
-        Eigen::VectorXf b = Eigen::VectorXf::Zero(9);
+        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(8,9);
+        Eigen::VectorXd b = Eigen::VectorXd::Zero(9);
 
         for(int i=0; i<8; i++){
-            cv::Point2f x1 = kp_1_matched[index_list[i]];
-            cv::Point2f x2 = kp_2_matched[index_list[i]];
+            cv::Point2d x1 = kp_1_matched[index_list[i]];
+            cv::Point2d x2 = kp_2_matched[index_list[i]];
             
-            Eigen::Vector3f x1v = cam.getRay(Eigen::Vector2f(x1.x, x1.y));
-            Eigen::Vector3f x2v = cam.getRay(Eigen::Vector2f(x2.x, x2.y));
+            Eigen::Vector3d x1v = cam->getRay(Eigen::Vector2d(x1.x, x1.y));
+            Eigen::Vector3d x2v = cam->getRay(Eigen::Vector2d(x2.x, x2.y));
 
-            A.col(i) << x1v.x()*x2v.x(), x2v.x()*x1v.y(), x2v.x()*1,
-                        x2v.y()*x1v.x(), x2v.y()*x1v.y(), x2v.y()*1,
-                        1*x1v.x(), 1*x1v.y(), 1*1;
+            A(i,0) = x1v.x()*x2v.x();
+            A(i,1) = x2v.x()*x1v.y();
+            A(i,2) = x2v.x()*1;
+            A(i,3) = x2v.y()*x1v.x();
+            A(i,4) = x2v.y()*x1v.y();
+            A(i,5) = x2v.y()*1;
+            A(i,6) = 1*x1v.x();
+            A(i,7) = 1*x1v.y();
+            A(i,8) = 1*1;
         }
 
         // Step 1: compute a first approximation of E
 
-        // Compute the eigen values of A * A^T
-        Eigen::JacobiSVD<Eigen::MatrixXf> svd_0(A*A.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
+        // Compute the eigen values of A
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd_0(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
         // Compute the approximated Essential matrix
-        Eigen::VectorXf e = svd_0.matrixU().col(8);
-        Eigen::Matrix3f E;
+        Eigen::VectorXd e = svd_0.matrixV().col(8);
+        Eigen::Matrix3d E;
         E << e(0), e(1), e(2),
             e(3), e(4), e(5),
             e(6), e(7), e(8);
 
         // Step 2: project it into the essential space
-        Eigen::JacobiSVD<Eigen::MatrixXf> svd_1(E, Eigen::ComputeThinU | Eigen::ComputeThinV);
-        Eigen::Matrix3f SIGMA;
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd_1(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Eigen::Matrix3d SIGMA;
         SIGMA << 1, 0, 0,
                 0, 1, 0,
                 0, 0, 0;
@@ -167,11 +189,11 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
         float score;
         int nb_inliers = 0;
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
-            cv::Point2f x1 = kp_1_matched[i];
-            cv::Point2f x2 = kp_2_matched[i];
+            cv::Point2d x1 = kp_1_matched[i];
+            cv::Point2d x2 = kp_2_matched[i];
 
-            Eigen::Vector3f x1v = cam.getRay(Eigen::Vector2f(x1.x, x1.y));
-            Eigen::Vector3f x2v = cam.getRay(Eigen::Vector2f(x2.x, x2.y));
+            Eigen::Vector3d x1v = cam->getRay(Eigen::Vector2d(x1.x, x1.y));
+            Eigen::Vector3d x2v = cam->getRay(Eigen::Vector2d(x2.x, x2.y));
 
             // Score computed with Sampson's error
             score = std::abs(x2v.transpose() * E * x1v) / std::sqrt(
@@ -198,7 +220,7 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
         // Step 5: Recompute T
         float w_est = (float)best_number_of_inliers / (float)kp_1_matched.size();
         if (w_est > w){
-            T = std::log(1-0.999)/std::log(1-std::pow(w_est, 8));
+            T = std::log(1-0.9999)/std::log(1-std::pow(w_est, 8));
             w = w_est;
         }
     }

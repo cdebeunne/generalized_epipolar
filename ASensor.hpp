@@ -1,29 +1,30 @@
-#ifndef CAMERA_HPP
-#define CAMERA_HPP
+#ifndef ASENSOR_HPP
+#define ASENSOR_HPP
 
 #include <opencv2/core.hpp>
 #include "eigen3/Eigen/Core"
 
-class Camera
+class ASensor
 {
 public:
-    Camera(Eigen::Matrix3f K): _K(K){};
+    ASensor(Eigen::Matrix3d K): _K(K){};
 
-    Eigen::Vector3f getRay(Eigen::Vector2f f) {
+    Eigen::Vector3d getRay(Eigen::Vector2d f) {
         // Get ray with the convention z front 
         
-        Eigen::Vector3f rayCam;
+        Eigen::Vector3d rayCam;
 
         rayCam.segment<2>(0) = (f - _K.block<2, 1>(0, 2));
         rayCam[0] /= _K(0, 0);
         rayCam[1] /= _K(1, 1);
         rayCam[2] = 1;
+        rayCam.normalize();
         return rayCam;
     }
 
 
 protected:
-    Eigen::Matrix3f _K;
+    Eigen::Matrix3d _K;
 };
 
 #endif
