@@ -63,22 +63,12 @@ Eigen::Vector3d triangulate(Eigen::Vector3d ray0, Eigen::Vector3d ray1, Eigen::V
     return position;
 }
 
-void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
-    // recover displacement from E
-    // We then have x2 = Rx1 + t
-    Eigen::JacobiSVD<Eigen::MatrixXd> svd_2(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    Eigen::Matrix3d Rzp;
-    Rzp << 0, -1, 0,
-        1, 0, 0,
-        0, 0, 1;
-    std::vector<int> new_inliers;
-    
-    R = svd_2.matrixU() * Rzp.transpose() * svd_2.matrixV().transpose();
-    Eigen::Matrix3d tx = svd_2.matrixU() * Rzp * svd_2.singularValues().asDiagonal() * svd_2.matrixU().transpose();
-    t << tx(2,1), tx(0,2), tx(1,0);
+int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen::Vector3d &t, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::vector<int> inliers){
 
-    // Let's see if we have positive or negative depth
     float avg_depth = 0;
+    int inliers_number = 0;
+
+    // We check if the depth is positive
     for (int i=0; i < (int)kp_1_matched.size(); i++){
         if (inliers[i] == 0){
             continue;
@@ -91,49 +81,64 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
         avg_depth = avg_depth + lmk(2);
 
         // check inlier
-        if(lmk(2) < 0){
-            new_inliers.push_back(0);
-        } else{
-            new_inliers.push_back(1);
-        }
+        if(lmk(2) > 0){
+            inliers_number += 1;
+        } 
     }
-    if (avg_depth < 0){
-        Eigen::Matrix3d Rzm;
-        Rzm << 0, 1, 0,
-            -1, 0, 0,
-            0, 0, 1;
-        
-        R = svd_2.matrixU() * Rzm.transpose() * svd_2.matrixV().transpose();
-        tx = svd_2.matrixU() * Rzm * svd_2.singularValues().asDiagonal() * svd_2.matrixU().transpose();
-        t << tx(2,1), tx(0,2), tx(1,0);
 
-        // Let's see if we have positive or negative depth
-        new_inliers.clear();
-        for (int i=0; i < (int)kp_1_matched.size(); i++){
-            if (inliers[i] == 0){
-                continue;
-            }
-            float u0 = kp_1_matched[i].x;
-            float v0 = kp_1_matched[i].y;
-            float u1 = kp_2_matched[i].x;
-            float v1 = kp_2_matched[i].y;
-            Eigen::Vector3d lmk = triangulate(cam->getRay(Eigen::Vector2d(u0, v0)), cam->getRay(Eigen::Vector2d(u1, v1)), t);
+    return inliers_number;
+}
 
-            // check inlier
-            if(lmk(2) < 0){
-                new_inliers.push_back(0);
-            } else{
-                new_inliers.push_back(1);
-            }
-        }
+void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
+    // recover displacement from E
+    // We then have x2 = Rx1 + t
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d U = svd.matrixU();
+    Eigen::Matrix3d V = svd.matrixV();
+    Eigen::Matrix3d S = svd.singularValues().asDiagonal();
+
+    // Let's compute the possible rotation and translation 
+    Eigen::Matrix3d W;
+    W << 0, -1, 0,
+        1, 0, 0,
+        0, 0, 1;
+    std::vector<int> new_inliers;
+    
+    Eigen::Matrix3d R1 = U * W.transpose() * V.transpose();
+    Eigen::Matrix3d tx = U * W * S * U.transpose();
+    Eigen::Vector3d t1(tx(2,1), tx(0,2), tx(1,0));
+
+    Eigen::Matrix3d R2 = U * W * V.transpose();
+    tx = U * W.transpose() * S * U.transpose();
+    Eigen::Vector3d t2(tx(2,1), tx(0,2), tx(1,0));
+
+    int nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers);
+    int nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers);
+    int nInliers3 = checkRT(cam, R2, t1, kp_1_matched, kp_2_matched, inliers);
+    int nInliers4 = checkRT(cam, R2, t2, kp_1_matched, kp_2_matched, inliers);
+
+    int maxInliers = std::max(nInliers1,std::max(nInliers2, std::max(nInliers3, nInliers4)));
+
+    // Select the transformation with the biggest nInliers
+    if (maxInliers == nInliers1){
+        R = R1;
+        t = t1;
+    } else if (maxInliers == nInliers2){
+        R = R1;
+        t = t2;
+    } else if (maxInliers == nInliers3){
+        R = R2;
+        t = t2;
+    } else if (maxInliers == nInliers4){
+        R = R2;
+        t = t2;
     }
-    inliers = new_inliers;
 }
 
 void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E, float threshold, std::vector<int> &inliers){
     int best_number_of_inliers = 0;
     float w = 0.5;
-    float T = std::log(1-0.9999)/std::log(1-std::pow(w, 8));
+    float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
     for( int k=0; k<T; k++){
@@ -186,7 +191,6 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
         E = svd_1.matrixU() * SIGMA * svd_1.matrixV().transpose();
 
         // Step 3: Check inliers
-        float score;
         int nb_inliers = 0;
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
             cv::Point2d x1 = kp_1_matched[i];
@@ -195,18 +199,24 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
             Eigen::Vector3d x1v = cam->getRay(Eigen::Vector2d(x1.x, x1.y));
             Eigen::Vector3d x2v = cam->getRay(Eigen::Vector2d(x2.x, x2.y));
 
-            // Score computed with Sampson's error
-            score = std::abs(x2v.transpose() * E * x1v) / std::sqrt(
-                (x2v.transpose() * E)(0) * (x2v.transpose() * E)(0) +
-                (x2v.transpose() * E)(1) * (x2v.transpose() * E)(1) +
-                (E * x1v)(0) * (E * x1v)(0) +
-                (E * x1v)(1) * (E * x1v)(1));
+            // Residuals computed with the angle wrt to epiplanes
+            Eigen::Vector3d epiplane_1 = E * x1v;
+            double residual_1 = std::abs(epiplane_1.dot(x2v)) / epiplane_1.norm();
 
-            if (score < threshold){
+            if(threshold < residual_1){
+                inliers_iter.push_back(0);
+                continue;
+            }
+
+            Eigen::Vector3d epiplane_2 = E.transpose() * x2v;
+            double residual_2 = std::abs(epiplane_2.dot(x1v)) / epiplane_2.norm();
+
+            if(threshold < residual_2){
+                inliers_iter.push_back(0);
+                continue;
+            } else {
                 nb_inliers++;
                 inliers_iter.push_back(1);
-            } else{
-                inliers_iter.push_back(0);
             }
         }
         
@@ -220,7 +230,7 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
         // Step 5: Recompute T
         float w_est = (float)best_number_of_inliers / (float)kp_1_matched.size();
         if (w_est > w){
-            T = std::log(1-0.9999)/std::log(1-std::pow(w_est, 8));
+            T = std::log(1-0.999)/std::log(1-std::pow(w_est, 8));
             w = w_est;
         }
     }

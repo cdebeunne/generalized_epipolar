@@ -41,9 +41,9 @@ int main(int argc, char** argv){
     std::shared_ptr<ASensor> cam(new ASensor(K));
     
 
-    std::string image_path0 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
-    //std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
-    std::string image_path1 = "/home/cesardebeunne/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam1/data/1403636579763555584.png";
+    std::string image_path0 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
+    //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
+    std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam1/data/1403636579763555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
