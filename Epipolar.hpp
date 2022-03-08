@@ -65,7 +65,6 @@ Eigen::Vector3d triangulate(Eigen::Vector3d ray0, Eigen::Vector3d ray1, Eigen::V
 
 int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen::Vector3d &t, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::vector<int> inliers){
 
-    float avg_depth = 0;
     int inliers_number = 0;
 
     // We check if the depth is positive
@@ -77,13 +76,47 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
         float v0 = kp_1_matched[i].y;
         float u1 = kp_2_matched[i].x;
         float v1 = kp_2_matched[i].y;
-        Eigen::Vector3d lmk = triangulate(cam->getRay(Eigen::Vector2d(u0, v0)), cam->getRay(Eigen::Vector2d(u1, v1)), t);
-        avg_depth = avg_depth + lmk(2);
+        Eigen::Vector3d normal1 = cam->getRay(Eigen::Vector2d(u0, v0));
+        Eigen::Vector3d normal2 = cam->getRay(Eigen::Vector2d(u1, v1));
+        Eigen::Vector3d lmk_C1 = triangulate(normal1, normal2, t);
 
-        // check inlier
-        if(lmk(2) > 0){
-            inliers_number += 1;
+        // check parallax
+        double dist1 = normal1.norm();
+        double dist2 = normal2.norm();
+
+        double cosParallax = normal1.dot(normal2) / (dist1 * dist2);
+
+        // check depth wrt C1 only if enough parallax as infinite point can have negative depth
+        if(lmk_C1(2) < 0 && cosParallax < 0.99998){
+            continue;
         } 
+
+        // check depth wrt C2 as well
+        Eigen::Vector3d lmk_C2 = R * lmk_C1 + t;
+        if(lmk_C2(2) < 0 && cosParallax < 0.99998){
+            continue;
+        }
+
+        // Check reprojection error in first image
+        // Eigen::Vector2d im1_xy;
+        // cam->project(lmk_C1, im1_xy);
+        // Eigen::Vector2d im2_xy(u1, v1);
+
+        // double squareError_1 = (im1_xy - im2_xy).norm();
+        // if (squareError_1>3){
+        //     continue;
+        // }
+
+        // // Check reprojection error in second image
+        // cam->project(lmk_C2, im2_xy);
+        // im1_xy << u0, v0;
+
+        // double squareError_2 = (im1_xy - im2_xy).norm();
+        // if (squareError_2>3){
+        //     continue;
+        // }
+
+        inliers_number++;
     }
 
     return inliers_number;
@@ -107,10 +140,10 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
     Eigen::Matrix3d R1 = U * W.transpose() * V.transpose();
     Eigen::Matrix3d tx = U * W * S * U.transpose();
     Eigen::Vector3d t1(tx(2,1), tx(0,2), tx(1,0));
+    std::cout << t1 << std::endl;
 
     Eigen::Matrix3d R2 = U * W * V.transpose();
-    tx = U * W.transpose() * S * U.transpose();
-    Eigen::Vector3d t2(tx(2,1), tx(0,2), tx(1,0));
+    Eigen::Vector3d t2 = -t1;
 
     int nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers);
     int nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers);
@@ -136,12 +169,12 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
 }
 
 void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E, float threshold, std::vector<int> &inliers){
-    int best_number_of_inliers = 0;
+    double best_score = 0;
     float w = 0.5;
-    float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
+    // float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
-    for( int k=0; k<T; k++){
+    for( int k=0; k<10; k++){
 
         std::vector<int> index_list = random_index((int)kp_1_matched.size());
         inliers_iter.clear(); 
@@ -158,15 +191,15 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
             Eigen::Vector3d x1v = cam->getRay(Eigen::Vector2d(x1.x, x1.y));
             Eigen::Vector3d x2v = cam->getRay(Eigen::Vector2d(x2.x, x2.y));
 
-            A(i,0) = x1v.x()*x2v.x();
+            A(i,0) = x2v.x()*x1v.x();
             A(i,1) = x2v.x()*x1v.y();
-            A(i,2) = x2v.x()*1;
+            A(i,2) = x2v.x()*x1v.z();
             A(i,3) = x2v.y()*x1v.x();
             A(i,4) = x2v.y()*x1v.y();
-            A(i,5) = x2v.y()*1;
-            A(i,6) = 1*x1v.x();
-            A(i,7) = 1*x1v.y();
-            A(i,8) = 1*1;
+            A(i,5) = x2v.y()*x1v.z();
+            A(i,6) = x2v.z()*x1v.x();
+            A(i,7) = x2v.z()*x1v.y();
+            A(i,8) = x2v.z()*x1v.z();
         }
 
         // Step 1: compute a first approximation of E
@@ -191,7 +224,7 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
         E = svd_1.matrixU() * SIGMA * svd_1.matrixV().transpose();
 
         // Step 3: Check inliers
-        int nb_inliers = 0;
+        double score = 0;
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
             cv::Point2d x1 = kp_1_matched[i];
             cv::Point2d x2 = kp_2_matched[i];
@@ -206,7 +239,8 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
             if(threshold < residual_1){
                 inliers_iter.push_back(0);
                 continue;
-            }
+            } else
+                score += threshold - residual_1;
 
             Eigen::Vector3d epiplane_2 = E.transpose() * x2v;
             double residual_2 = std::abs(epiplane_2.dot(x1v)) / epiplane_2.norm();
@@ -215,24 +249,24 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
                 inliers_iter.push_back(0);
                 continue;
             } else {
-                nb_inliers++;
+                score += threshold - residual_2;
                 inliers_iter.push_back(1);
             }
         }
         
         // Step 4: Update the Essential Matrix
-        if (nb_inliers > best_number_of_inliers){
-            best_number_of_inliers = nb_inliers;
+        if (score> best_score){
+            best_score = score;
             best_E = E;
             inliers = inliers_iter;
         }
 
         // Step 5: Recompute T
-        float w_est = (float)best_number_of_inliers / (float)kp_1_matched.size();
-        if (w_est > w){
-            T = std::log(1-0.999)/std::log(1-std::pow(w_est, 8));
-            w = w_est;
-        }
+        // float w_est = (float)best_number_of_inliers / (float)kp_1_matched.size();
+        // if (w_est > w){
+        //     T = std::log(1-0.999)/std::log(1-std::pow(w_est, 8));
+        //     w = w_est;
+        // }
     }
 }
 

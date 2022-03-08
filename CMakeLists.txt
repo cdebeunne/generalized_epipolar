@@ -1,4 +1,4 @@
-set(CMAKE_BUILD_TYPE "release")
+set(CMAKE_BUILD_TYPE RELEASE)
 project(epipolar)
 cmake_minimum_required(VERSION 2.8)
 

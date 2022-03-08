@@ -22,6 +22,19 @@ public:
         return rayCam;
     }
 
+    bool project(const Eigen::Vector3d &p3d, Eigen::Vector2d &p2d) {
+
+        // to image homogeneous coordinates
+        Eigen::Vector3d pt = _K * p3d;
+        pt /= pt(2, 0);
+        p2d = pt.block<2, 1>(0, 0);
+
+        if (p3d[2] < 0.01) //point behind the camera
+            return false;
+
+        return true;
+    }
+
 
 protected:
     Eigen::Matrix3d _K;

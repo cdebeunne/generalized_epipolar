@@ -3,6 +3,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
+
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "eigen3/Eigen/Core"
@@ -41,9 +42,9 @@ int main(int argc, char** argv){
     std::shared_ptr<ASensor> cam(new ASensor(K));
     
 
-    std::string image_path0 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
+    std::string image_path0 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
     //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
-    std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam1/data/1403636579763555584.png";
+    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636580063555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
@@ -107,17 +108,6 @@ int main(int argc, char** argv){
             kp_2_matched_filtered.push_back(kp_2_matched[i]);
         }
     }
-    // recoverPose(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
-
-    // // Retrieve inliers
-    // std::vector<cv::Point2d> kp_1_matched_filtered_2;
-    // std::vector<cv::Point2d> kp_2_matched_filtered_2;
-    // for( int i = 0; i < (int)kp_1_matched_filtered.size(); i++ ){
-    //     if (inliers[i] == 1){
-    //         kp_1_matched_filtered_2.push_back(kp_1_matched_filtered[i]);
-    //         kp_2_matched_filtered_2.push_back(kp_2_matched_filtered[i]);
-    //     }
-    // }
 
     inliers.clear();
     EssentialRANSAC(kp_1_matched_filtered, kp_2_matched_filtered, cam, best_E, thresh, inliers);
@@ -129,22 +119,27 @@ int main(int argc, char** argv){
     std::cout << best_E << std::endl;
 
     // recover displacement from E
-    recoverPose(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
+    recoverPose(best_E, cam, kp_1_matched, kp_2_matched, t, R, inliers);
     std::cout << "Rotation" << std::endl;
     std::cout << R << std::endl;
 
     // Compare with opencv
     cv::Mat cvMask;
     timer.start();
-    cv::Mat E_cv = cv::findEssentialMat(kp_1_matched, kp_2_matched, focal_length, principal_pt, cv::RANSAC, 0.95, 1.0, cvMask);
+    cv::Mat E_cv = cv::findEssentialMat(kp_1_matched, kp_2_matched, focal_length, principal_pt, cv::RANSAC, 0.9, 1.0, cvMask);
     timer.stop();
     std::cout << "Elapsed time" << std::endl;
     std::cout << timer.elapsedSeconds() << std::endl; 
 
+
     cv::Mat R_cv, t_cv;
     cv::Mat K_cv = (cv::Mat_<float>(3,3) << K(0,0), 0, K(0,2),
                0, K(1,1), K(1,2),
-               0, 0, 1);  
+               0, 0, 1);
+    
+    cv::Mat best_E_cv = (cv::Mat_<double>(3,3) << best_E(0,0), best_E(0,1), best_E(0,2),
+                best_E(1,0), best_E(1,1), best_E(1,2),
+                best_E(2,0), best_E(2,1), best_E(2,2));
     cv::recoverPose(E_cv, kp_1_matched, kp_2_matched, K_cv, R_cv, t_cv, cvMask);
     std::cout << "Open CV essential Matrix" << std::endl;
     std::cout << E_cv << std::endl;
