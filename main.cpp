@@ -44,7 +44,7 @@ int main(int argc, char** argv){
 
     std::string image_path0 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
     //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
-    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636580063555584.png";
+    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579863555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
@@ -82,7 +82,7 @@ int main(int argc, char** argv){
     // imshow( "Good Matches", img_matches );
     for( int i = 0; i < (int)good_matches.size(); i++ )
     {
-        printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx );
+        // printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx );
         kp_1_matched.push_back(keypoints_1[good_matches[i].queryIdx].pt);
         kp_2_matched.push_back(keypoints_2[good_matches[i].queryIdx].pt);
     }
@@ -109,7 +109,6 @@ int main(int argc, char** argv){
         }
     }
 
-    inliers.clear();
     EssentialRANSAC(kp_1_matched_filtered, kp_2_matched_filtered, cam, best_E, thresh, inliers);
     timer.stop();
 
@@ -122,11 +121,13 @@ int main(int argc, char** argv){
     recoverPose(best_E, cam, kp_1_matched, kp_2_matched, t, R, inliers);
     std::cout << "Rotation" << std::endl;
     std::cout << R << std::endl;
+    std::cout << "Translation" << std::endl;
+    std::cout << t << std::endl;
 
     // Compare with opencv
     cv::Mat cvMask;
     timer.start();
-    cv::Mat E_cv = cv::findEssentialMat(kp_1_matched, kp_2_matched, focal_length, principal_pt, cv::RANSAC, 0.9, 1.0, cvMask);
+    cv::Mat E_cv = cv::findEssentialMat(kp_1_matched, kp_2_matched, focal_length, principal_pt, cv::RANSAC, 0.99, 1.0, cvMask);
     timer.stop();
     std::cout << "Elapsed time" << std::endl;
     std::cout << timer.elapsedSeconds() << std::endl; 
@@ -145,6 +146,8 @@ int main(int argc, char** argv){
     std::cout << E_cv << std::endl;
     std::cout << "Associated Rotation" << std::endl;
     std::cout << R_cv << std::endl;
+    std::cout << "Associated Translatino" << std::endl;
+    std::cout << t_cv << std::endl;
 
     return 0;
 

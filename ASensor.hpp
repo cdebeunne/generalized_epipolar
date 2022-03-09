@@ -12,11 +12,9 @@ public:
     Eigen::Vector3d getRay(Eigen::Vector2d f) {
         // Get ray with the convention z front 
         
-        Eigen::Vector3d rayCam;
-
-        rayCam.segment<2>(0) = (f - _K.block<2, 1>(0, 2));
-        rayCam[0] /= _K(0, 0);
-        rayCam[1] /= _K(1, 1);
+        Eigen::Vector3d rayCam; 
+        rayCam[0] = (f(0) - _K(0,2)) / _K(0, 0);
+        rayCam[1] = (f(1) - _K(1,2)) / _K(1, 1);
         rayCam[2] = 1;
         rayCam.normalize();
         return rayCam;
