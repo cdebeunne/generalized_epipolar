@@ -87,35 +87,16 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
         double cosParallax = normal1.dot(normal2) / (dist1 * dist2);
 
         // check depth wrt C1 only if enough parallax as infinite point can have negative depth
-        if(lmk_C1.dot(normal1) < 0 ){
+        if(lmk_C1.dot(normal1) < 0 && cosParallax < 0.9998){
             continue;
         } 
 
         // check depth wrt C2 as well
         Eigen::Vector3d lmk_C2 = R * lmk_C1 + t;
-        if(lmk_C2.dot(normal2) < 0 ){
+
+        if(lmk_C2.dot(normal2) < 0 && cosParallax < 0.9998){
             continue;
         }
-
-        // Check reprojection error in first image
-        // Eigen::Vector2d im1_xy;
-        // cam->project(lmk_C1, im1_xy);
-        // Eigen::Vector2d im2_xy(u1, v1);
-
-        // double squareError_1 = (im1_xy - im2_xy).norm();
-        // if (squareError_1>3){
-        //     continue;
-        // }
-
-        // // Check reprojection error in second image
-        // cam->project(lmk_C2, im2_xy);
-        // im1_xy << u0, v0;
-
-        // double squareError_2 = (im1_xy - im2_xy).norm();
-        // if (squareError_2>3){
-        //     continue;
-        // }
-
         inliers_number++;
     }
 
@@ -136,10 +117,10 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
         0, 0, 1;
     std::vector<int> new_inliers;
     
-    Eigen::Matrix3d R1 = U * W.transpose() * V.transpose();
+    Eigen::Matrix3d R1 = U * W * V.transpose();
     Eigen::Vector3d t1 = U.col(2);
 
-    Eigen::Matrix3d R2 = U * W * V.transpose();
+    Eigen::Matrix3d R2 = U * W.transpose() * V.transpose();
     Eigen::Vector3d t2 = -t1;
 
     int nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers);
@@ -173,20 +154,20 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
     }
 }
 
-void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E, float threshold, std::vector<int> &inliers){
+void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E,
+                     std::vector<int> &inliers, int Npoints=8, int Niter=4000){
     double best_score = 0;
-    float w = 0.5;
-    // float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
+    float threshold = 0.0087;
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
-    for( int k=0; k<4000; k++){
+    for( int k=0; k<Niter; k++){
 
         std::vector<int> index_list = random_index((int)kp_1_matched.size());
 
         // Let's find the essential matrix with the 8 points algorithm
-        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(8,9);
+        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(Npoints,9);
 
-        for(int i=0; i<8; i++){
+        for(int i=0; i<Npoints; i++){
             cv::Point2d x1 = kp_1_matched[index_list[i]];
             cv::Point2d x2 = kp_2_matched[index_list[i]];
             
