@@ -41,3 +41,6 @@ include_directories(
 
 add_executable(main main.cpp)
 target_link_libraries(main ${OpenCV_LIBS} ${EIGEN3_LIBS})
+
+add_executable(main_homography main_homography.cpp)
+target_link_libraries(main_homography ${OpenCV_LIBS} ${EIGEN3_LIBS})

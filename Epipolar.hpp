@@ -175,7 +175,7 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
 
 void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E, float threshold, std::vector<int> &inliers){
     double best_score = 0;
-    float w = 0.5;
+    // float w = 0.5;
     // float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
