@@ -86,15 +86,20 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
 
         double cosParallax = normal1.dot(normal2) / (dist1 * dist2);
 
+        if(!std::isfinite(lmk_C1(0)) || !std::isfinite(lmk_C1(1)) || !std::isfinite(lmk_C1(2)))
+        {
+                continue;
+        }
+
         // check depth wrt C1 only if enough parallax as infinite point can have negative depth
-        if(lmk_C1.dot(normal1) < 0 && cosParallax < 0.9998){
+        if(lmk_C1(2) <= 0 && cosParallax < 0.99998){
             continue;
         } 
 
         // check depth wrt C2 as well
         Eigen::Vector3d lmk_C2 = R * lmk_C1 + t;
 
-        if(lmk_C2.dot(normal2) < 0 && cosParallax < 0.9998){
+        if(lmk_C2(2) <= 0 && cosParallax < 0.99998){
             continue;
         }
         inliers_number++;
@@ -103,7 +108,7 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
     return inliers_number;
 }
 
-void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
+void recoverPoseEssential(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
     // recover displacement from E
     // We then have x2 = Rx1 + t
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
@@ -157,12 +162,6 @@ void recoverPose(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<c
 void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E,
                      std::vector<int> &inliers, int Npoints=8, int Niter=4000){
     double best_score = 0;
-<<<<<<< HEAD
-    // float w = 0.5;
-    // float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
-=======
-    float threshold = 0.0087;
->>>>>>> 342fda74019fda2befe37b98dd71cf9d78f67cb9
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
     for( int k=0; k<Niter; k++){
@@ -214,6 +213,7 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
 
         // Step 3: Check inliers
         double score = 0;
+        double threshold = 0.0087;
         inliers_iter.clear(); 
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
             cv::Point2d x1 = kp_1_matched[i];

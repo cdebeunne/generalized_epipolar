@@ -42,9 +42,9 @@ int main(int argc, char** argv){
     std::shared_ptr<ASensor> cam(new ASensor(K));
     
 
-    std::string image_path0 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
+    std::string image_path0 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579763555584.png";
     //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
-    std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579863555584.png";
+    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579863555584.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
@@ -89,13 +89,11 @@ int main(int argc, char** argv){
     // cv::waitKey(0);
 
     // Threshold for RANSAC
-    double thresh = std::atof(argv[1]);
     Eigen::Matrix3d best_E;
     Eigen::Matrix3d R;
     Eigen::Vector3d t;
     std::vector<int> inliers;
     std::vector<int> inliers_false;
-    std::cout << "threshold :" << thresh << std::endl;
 
     timer.start();
     EssentialRANSAC(kp_1_matched, kp_2_matched, cam, best_E, inliers);
@@ -119,7 +117,7 @@ int main(int argc, char** argv){
     std::cout << best_E << std::endl;
 
     // recover displacement from E
-    recoverPose(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
+    recoverPoseEssential(best_E, cam, kp_1_matched_filtered, kp_2_matched_filtered, t, R, inliers);
     std::cout << "Rotation" << std::endl;
     std::cout << R << std::endl;
     std::cout << "Translation" << std::endl;
@@ -147,7 +145,7 @@ int main(int argc, char** argv){
     std::cout << E_cv << std::endl;
     std::cout << "Associated Rotation" << std::endl;
     std::cout << R_cv << std::endl;
-    std::cout << "Associated Translatino" << std::endl;
+    std::cout << "Associated Translation" << std::endl;
     std::cout << t_cv << std::endl;
 
     return 0;

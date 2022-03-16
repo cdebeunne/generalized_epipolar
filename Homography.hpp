@@ -8,6 +8,7 @@
 #include "eigen3/Eigen/SVD"
 
 #include "ASensor.hpp"
+#include "Epipolar.hpp"
 
 #include <iostream>
 #include <algorithm>
@@ -16,23 +17,8 @@
 #include <memory>
 #include <random>
 
-
-std::vector<int> random_index(int size){
-    std::vector<int> index_list;
-    index_list.resize(size, 0);
-    std::iota(index_list.begin(), index_list.end(), 0);
-
-    std::random_device rd;
-    std::mt19937 g(rd());
- 
-    std::shuffle(index_list.begin(), index_list.end(), g);
-    return index_list;
-}
-
 void HomographyRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_H, float threshold, std::vector<int> &inliers){
     double best_score = 0;
-    // float w = 0.5;
-    // float T = std::log(1-0.999)/std::log(1-std::pow(w, 8));
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
     for( int k=0; k<4000; k++){
@@ -117,6 +103,153 @@ void HomographyRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poi
         }
     }
 }
+
+bool recoverPoseHomography(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &H, Eigen::Vector3d &t, Eigen::Matrix3d &R)
+{
+    // We recover 8 motion hypotheses using the method of Faugeras et al.
+    // Motion and structure from motion in a piecewise planar environment.
+
+    Eigen::JacobiSVD<Eigen::Matrix3d> svd(H, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d U = svd.matrixU();
+    Eigen::Matrix3d V = svd.matrixV();
+    Eigen::Matrix3d Vt = V.transpose();
+    Eigen::Vector3d w = svd.singularValues();
+
+    double s = U.determinant() * Vt.determinant();
+
+    double d1 = w(0);
+    double d2 = w(1);
+    double d3 = w(2);
+    
+    // We ignore solutions with multiplicity
+    if(d1/d2<1.00001 || d2/d3<1.00001)
+    {
+        return false;
+    }
+
+    std::vector<Eigen::Matrix3d> vR;
+    std::vector<Eigen::Vector3d> vt, vn;
+    vR.reserve(8);
+    vt.reserve(8);
+    vn.reserve(8);
+
+    //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
+    double aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
+    double aux3 = sqrt((d2*d2-d3*d3)/(d1*d1-d3*d3));
+    double x1[] = {aux1,aux1,-aux1,-aux1};
+    double x3[] = {aux3,-aux3,aux3,-aux3};
+
+    //case d' > 0 ie d' = d2
+    double aux_stheta = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1+d3)*d2);
+
+    double ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);
+    double stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};
+
+    for(int i=0; i<4; i++)
+    {
+        Eigen::Matrix3d Rp;
+        Rp.setZero();
+        Rp(0,0) = ctheta;
+        Rp(0,2) = -stheta[i];
+        Rp(1,1) = 1.0;
+        Rp(2,0) = stheta[i];
+        Rp(2,2) = ctheta;
+
+        Eigen::Matrix3d R = s*U*Rp*Vt;
+        vR.push_back(R);
+
+        Eigen::Vector3d tp;
+        tp(0) = x1[i];
+        tp(1) = 0;
+        tp(2) = -x3[i];
+        tp *= d1-d3;
+
+        Eigen::Vector3d t = U*tp;
+        vt.push_back(t / t.norm());
+
+        Eigen::Vector3d np;
+        np(0) = x1[i];
+        np(1) = 0;
+        np(2) = x3[i];
+
+        Eigen::Vector3d n = V*np;
+        if(n(2) < 0)
+            n = -n;
+        vn.push_back(n);
+    }
+
+    //case d'=-d2
+    double aux_sphi = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1-d3)*d2);
+
+    double cphi = (d1*d3-d2*d2)/((d1-d3)*d2);
+    double sphi[] = {aux_sphi, -aux_sphi, -aux_sphi, aux_sphi};
+
+    for(int i=0; i<4; i++)
+    {
+        Eigen::Matrix3d Rp;
+        Rp.setZero();
+        Rp(0,0) = cphi;
+        Rp(0,2) = sphi[i];
+        Rp(1,1) = -1;
+        Rp(2,0) = sphi[i];
+        Rp(2,2) = -cphi;
+
+        Eigen::Matrix3d R = s*U*Rp*Vt;
+        vR.push_back(R);
+
+        Eigen::Vector3d tp;
+        tp(0) = x1[i];
+        tp(1) = 0;
+        tp(2) = x3[i];
+        tp *= d1+d3;
+
+        Eigen::Vector3d t = U*tp;
+        vt.push_back(t / t.norm());
+
+        Eigen::Vector3d np;
+        np(0) = x1[i];
+        np(1) = 0;
+        np(2) = x3[i];
+
+        Eigen::Vector3d n = V*np;
+        if(n(2) < 0)
+            n = -n;
+        vn.push_back(n);
+    }
+    int bestInliers = 0;
+    int secondBestInliers = 0;
+    int bestId = 0;
+
+    // We reconstruct all hypotheses and check in terms of triangulated points and parallax
+    for(size_t i=0; i<8; i++)
+    {
+        std::vector<int> inliers;
+        int nInliers = checkRT(cam, vR[i], vt[i], kp_1_matched, kp_2_matched, inliers);
+
+        if(nInliers>bestInliers)
+        {
+            secondBestInliers = bestInliers;
+            bestInliers = nInliers;
+            bestId = i;
+        }
+        else if(nInliers>secondBestInliers)
+        {
+            secondBestInliers = nInliers;
+        }
+    }
+
+
+    if(secondBestInliers<=bestInliers)
+    {
+        R = vR[bestId];
+        t = vt[bestId];
+        return true;
+    }
+
+    return false;
+}
+
+
 
 
 #endif

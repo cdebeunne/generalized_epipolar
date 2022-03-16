@@ -115,4 +115,11 @@ int main(int argc, char** argv){
     std::cout << "Estimated homography matrix" << std::endl;
     std::cout << best_H << std::endl;
 
+    recoverPoseHomography(kp_1_matched_filtered, kp_2_matched_filtered, cam, best_H, t, R);
+    std::cout << "Rotation" << std::endl;
+    std::cout << R << std::endl;
+    std::cout << "Translation" << std::endl;
+    std::cout << t << std::endl;
+
+
 }
