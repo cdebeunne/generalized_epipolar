@@ -37,6 +37,9 @@ int main(int argc, char** argv){
     K << 458.654, 0, 367.215,
          0, 457.296, 248.375,
          0, 0, 1;
+    cv::Mat K_cv = (cv::Mat_<float>(3,3) << K(0,0), 0, K(0,2),
+               0, K(1,1), K(1,2),
+               0, 0, 1);
     double focal_length = K(0);
     cv::Point2d principal_pt(K(0,2), K(1,2));
     std::shared_ptr<ASensor> cam(new ASensor(K));
@@ -115,11 +118,14 @@ int main(int argc, char** argv){
     std::cout << "Estimated homography matrix" << std::endl;
     std::cout << best_H << std::endl;
 
-    recoverPoseHomography(kp_1_matched_filtered, kp_2_matched_filtered, cam, best_H, t, R);
+    Eigen::Matrix3d H21 = best_H.inverse();
+    recoverPoseHomography(kp_1_matched_filtered, kp_2_matched_filtered, cam, H21, t, R);
     std::cout << "Rotation" << std::endl;
     std::cout << R << std::endl;
     std::cout << "Translation" << std::endl;
     std::cout << t << std::endl;
+
+    estimateMotionWithHomographyCV(kp_1_matched, kp_2_matched, K_cv, t, R);
 
 
 }

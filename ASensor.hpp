@@ -22,13 +22,11 @@ public:
 
     bool project(const Eigen::Vector3d &p3d, Eigen::Vector2d &p2d) {
 
-        // to image homogeneous coordinates
-        Eigen::Vector3d pt = _K * p3d;
-        pt /= pt(2, 0);
-        p2d = pt.block<2, 1>(0, 0);
-
         if (p3d[2] < 0.01) //point behind the camera
             return false;
+        
+        p2d(0) = _K(0,0)*p3d(0)/p3d(2) + _K(0,2);
+        p2d(1) = _K(1,1)*p3d(1)/p3d(2) + _K(1,2);
 
         return true;
     }

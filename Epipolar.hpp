@@ -88,7 +88,7 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
 
         if(!std::isfinite(lmk_C1(0)) || !std::isfinite(lmk_C1(1)) || !std::isfinite(lmk_C1(2)))
         {
-                continue;
+            continue;
         }
 
         // check depth wrt C1 only if enough parallax as infinite point can have negative depth
@@ -96,12 +96,40 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
             continue;
         } 
 
+        // check reprojection error on C1
+        // Eigen::Vector2d p2d_C1;
+        // if (! cam->project(lmk_C1, p2d_C1)) continue;
+        // double square_error1 = (u0 - p2d_C1(0))*(u0 - p2d_C1(0)) + (v0 - p2d_C1(1))*(v0 - p2d_C1(1)); 
+        // if(square_error1 > 1800){
+        //     continue;
+        // }
+        // std::cout << "reproj pixel1" << std::endl;
+        // std::cout << square_error1 << std::endl;
+
+
         // check depth wrt C2 as well
         Eigen::Vector3d lmk_C2 = R * lmk_C1 + t;
-
         if(lmk_C2(2) <= 0 && cosParallax < 0.99998){
             continue;
         }
+        // std::cout << "depth C2 " << std::endl;
+        // std::cout << lmk_C2 << std::endl;
+        // std::cout << "depth C1 " << std::endl;
+        // std::cout << lmk_C1 << std::endl;
+
+
+        // check reprojection error on C1
+        // Eigen::Vector2d p2d_C2;
+        // if (! cam->project(lmk_C2, p2d_C2)) continue;
+        // double square_error2 = (u1 - p2d_C2(0))*(u1 - p2d_C2(0)) + (v1 - p2d_C2(1))*(v1 - p2d_C2(1));
+        // if(square_error2 > 1800){
+        //     continue;
+        // }
+        // std::cout << "reproj pixel2" << std::endl;
+        // std::cout << p2d_C2 << std::endl;
+        // std::cout << "orig pixel C2" << std::endl;
+        // std::cout << kp_2_matched[i] << std::endl;
+
         inliers_number++;
     }
 
@@ -117,31 +145,42 @@ void recoverPoseEssential(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std:
 
     // Let's compute the possible rotation and translation 
     Eigen::Matrix3d W;
-    W << 0, -1, 0,
-        1, 0, 0,
+    W << 0, 1, 0,
+        -1, 0, 0,
         0, 0, 1;
     std::vector<int> new_inliers;
+
+    if (U.determinant() < 0) U *= -1;
+    if (V.determinant() < 0) V *= -1;
     
     Eigen::Matrix3d R1 = U * W * V.transpose();
-    Eigen::Vector3d t1 = U.col(2);
+    Eigen::Vector3d t1 = 100*U.col(2);
 
     Eigen::Matrix3d R2 = U * W.transpose() * V.transpose();
     Eigen::Vector3d t2 = -t1;
 
     int nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers);
-    int nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers);
-    int nInliers3 = checkRT(cam, R2, t1, kp_1_matched, kp_2_matched, inliers);
-    int nInliers4 = checkRT(cam, R2, t2, kp_1_matched, kp_2_matched, inliers);
-
-    int maxInliers = std::max(nInliers1,std::max(nInliers2, std::max(nInliers3, nInliers4)));
     std::cout << "Ninliers1" << std::endl;
     std::cout << nInliers1 << std::endl;
+    std::cout << R1 << std::endl;
+    std::cout << t1 << std::endl;
+    int nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers);
     std::cout << "Ninliers2" << std::endl;
     std::cout << nInliers2 << std::endl;
+    std::cout << R1 << std::endl;
+    std::cout << t2 << std::endl;
+    int nInliers3 = checkRT(cam, R2, t1, kp_1_matched, kp_2_matched, inliers);
     std::cout << "Ninliers3" << std::endl;
     std::cout << nInliers3 << std::endl;
+    std::cout << R2 << std::endl;
+    std::cout << t1 << std::endl;
+    int nInliers4 = checkRT(cam, R2, t2, kp_1_matched, kp_2_matched, inliers);
     std::cout << "Ninliers4" << std::endl;
     std::cout << nInliers4 << std::endl;
+    std::cout << R2 << std::endl;
+    std::cout << t2 << std::endl;
+
+    int maxInliers = std::max(nInliers1,std::max(nInliers2, std::max(nInliers3, nInliers4)));
 
     // Select the transformation with the biggest nInliers
     if (maxInliers == nInliers1){
@@ -213,7 +252,7 @@ void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poin
 
         // Step 3: Check inliers
         double score = 0;
-        double threshold = 0.0087;
+        double threshold = 0.008;
         inliers_iter.clear(); 
         for (int i = 0; i < (int)kp_1_matched.size(); i++ ){
             cv::Point2d x1 = kp_1_matched[i];

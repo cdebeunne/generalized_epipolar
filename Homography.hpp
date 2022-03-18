@@ -7,6 +7,8 @@
 #include "eigen3/Eigen/QR"
 #include "eigen3/Eigen/SVD"
 
+#include <opencv2/core.hpp>
+
 #include "ASensor.hpp"
 #include "Epipolar.hpp"
 
@@ -17,17 +19,43 @@
 #include <memory>
 #include <random>
 
-void HomographyRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_H, float threshold, std::vector<int> &inliers){
+Eigen::Vector3f rotationMatrixToEulerAngles(cv::Mat &R)
+{
+
+    float sy = sqrt(R.at<double>(0,0) * R.at<double>(0,0) +  R.at<double>(1,0) * R.at<double>(1,0) );
+
+    bool singular = sy < 1e-6; // If
+
+    float x, y, z;
+    if (!singular)
+    {
+        x = atan2(R.at<double>(2,1) , R.at<double>(2,2));
+        y = atan2(-R.at<double>(2,0), sy);
+        z = atan2(R.at<double>(1,0), R.at<double>(0,0));
+    }
+    else
+    {
+        x = atan2(-R.at<double>(1,2), R.at<double>(1,1));
+        y = atan2(-R.at<double>(2,0), sy);
+        z = 0;
+    }
+    return Eigen::Vector3f(x*180/3.1416, y*180/3.1416, z*180/3.1416);
+
+}
+
+
+void HomographyRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_H, float threshold, 
+                        std::vector<int> &inliers, int NPoints = 8, int Niter = 4000){
     double best_score = 0;
     std::vector<int> inliers_iter; // 1 if in, 0 if out  
 
-    for( int k=0; k<4000; k++){
+    for( int k=0; k<Niter; k++){
         std::vector<int> index_list = random_index((int)kp_1_matched.size());
 
         // Let's find the Homography using 8 points
-        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(2*8,9);
+        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(2*NPoints,9);
 
-        for(int i=0; i<8; i++){
+        for(int i=0; i<NPoints; i++){
             cv::Point2d x1 = kp_1_matched[index_list[i]];
             cv::Point2d x2 = kp_2_matched[index_list[i]];
             
@@ -55,7 +83,7 @@ void HomographyRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Poi
         }
 
         // Compute the eigen values of A
-        Eigen::JacobiSVD<Eigen::MatrixXd> svd_0(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd_0(A, Eigen::ComputeFullV);
 
         // Compute the approximated Essential matrix
         Eigen::VectorXd h = svd_0.matrixV().col(8);
@@ -225,6 +253,11 @@ bool recoverPoseHomography(std::vector<cv::Point2d> kp_1_matched, std::vector<cv
     {
         std::vector<int> inliers;
         int nInliers = checkRT(cam, vR[i], vt[i], kp_1_matched, kp_2_matched, inliers);
+        std::cout << "NInliers for R :" << std::endl;
+        std::cout << vR[i] << std::endl;
+        std::cout << " And t :" << std::endl;
+        std::cout << vt[i] << std::endl;
+        std::cout << nInliers << std::endl;
 
         if(nInliers>bestInliers)
         {
@@ -247,6 +280,54 @@ bool recoverPoseHomography(std::vector<cv::Point2d> kp_1_matched, std::vector<cv
     }
 
     return false;
+}
+
+bool estimateMotionWithHomographyCV(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, cv::Mat K, Eigen::Vector3d &t, Eigen::Matrix3d &R)
+{
+    cv::Mat cvMask, H;
+    H = cv::findHomography(kp_1_matched, kp_2_matched, cv::RANSAC, 3, cvMask);
+    H /= H.at<double>(2, 2);
+
+    // Get inliers
+    std::vector<int> inliers;
+    for (int i = 0; i < cvMask.rows; i++)
+        if ((int)cvMask.at<unsigned char>(i, 0) == 1)
+            inliers.push_back(i);
+
+    // -- Recover R,t from Homograph matrix
+    std::vector<cv::Mat> Rs, ts, normals;
+    cv::decomposeHomographyMat(H, K, Rs, ts, normals);
+    // Normalize t
+    for (auto &t : ts)
+    {
+        t = t / sqrt(t.at<double>(1, 0) * t.at<double>(1, 0) + t.at<double>(2, 0) * t.at<double>(2, 0) +
+                        t.at<double>(0, 0) * t.at<double>(0, 0));
+    }
+
+    // Remove wrong RT
+    // If for a (R,t), a point's pos is behind the camera, then this is wrong.
+    std::vector<cv::Mat> res_Rs, res_ts, res_normals;
+    cv::Mat possibleSolutions; //Use print_MatProperty to know its type: 32SC1
+    std::vector<cv::Point2f> kp_1_matched_np, kp_2_matched_np;
+    for (int idx : inliers)
+    {
+        kp_1_matched_np.push_back(cv::Point2f((kp_1_matched[idx].x-K.at<double>(0,2))/K.at<double>(0,0), (kp_1_matched[idx].y-K.at<double>(1,2))/K.at<double>(1,1)));
+        kp_2_matched_np.push_back(cv::Point2f((kp_2_matched[idx].x-K.at<double>(0,2))/K.at<double>(0,0), (kp_2_matched[idx].y-K.at<double>(1,2))/K.at<double>(1,1)));
+    }
+
+    cv::filterHomographyDecompByVisibleRefpoints(Rs, normals, kp_1_matched_np, kp_2_matched_np, possibleSolutions);
+    for (int i = 0; i < possibleSolutions.rows; i++)
+    {
+        std::cout << "HOMOCV " << i << std::endl;
+        int idx = possibleSolutions.at<int>(i, 0);
+        res_Rs.push_back(Rs[idx]);
+        res_ts.push_back(ts[idx]);
+        res_normals.push_back(normals[idx]);
+        std::cout << Rs[idx] << std::endl;
+        std::cout << ts[idx] << std::endl;
+    }
+    return true;
+
 }
 
 
