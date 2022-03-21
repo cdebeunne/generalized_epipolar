@@ -49,8 +49,8 @@ int main(int argc, char** argv){
     //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
     std::string image_path1 = "/media/ce.debeunne/HDD/datasets/KITTI/2011_09_26/2011_09_26_drive_0079_sync/image_00/data/0000000001.png";
 
-    cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
-    cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
+    cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_GRAYSCALE);
+    cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_GRAYSCALE);
 
     //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
     cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create(1000);

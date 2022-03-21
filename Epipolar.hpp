@@ -16,6 +16,30 @@
 #include <memory>
 #include <random>
 
+Eigen::Vector3d rotationMatrixToEulerAnglesEigen(Eigen::Matrix3d &R)
+{
+
+    float sy = sqrt(R(0,0) * R(0,0) +  R(1,0) * R(1,0) );
+
+    bool singular = sy < 1e-6; // If
+
+    float x, y, z;
+    if (!singular)
+    {
+        x = atan2(R(2,1) , R(2,2));
+        y = atan2(-R(2,0), sy);
+        z = atan2(R(1,0), R(0,0));
+    }
+    else
+    {
+        x = atan2(-R(1,2), R(1,1));
+        y = atan2(-R(2,0), sy);
+        z = 0;
+    }
+    return Eigen::Vector3d(x*180/3.1416, y*180/3.1416, z*180/3.1416);
+
+}
+
 
 std::vector<int> random_index(int size){
     std::vector<int> index_list;
@@ -66,12 +90,10 @@ Eigen::Vector3d triangulate(Eigen::Vector3d ray0, Eigen::Vector3d ray1, Eigen::V
 int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen::Vector3d &t, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::vector<int> inliers){
 
     int inliers_number = 0;
+    inliers.clear();
 
     // We check if the depth is positive
     for (int i=0; i < (int)kp_1_matched.size(); i++){
-        // if (inliers[i] == 0){
-        //     continue;
-        // }
         float u0 = kp_1_matched[i].x;
         float v0 = kp_1_matched[i].y;
         float u1 = kp_2_matched[i].x;
@@ -88,60 +110,35 @@ int checkRT(std::shared_ptr<ASensor> &cam, const Eigen::Matrix3d &R, const Eigen
 
         if(!std::isfinite(lmk_C1(0)) || !std::isfinite(lmk_C1(1)) || !std::isfinite(lmk_C1(2)))
         {
+            inliers.push_back(0);
             continue;
         }
 
         // check depth wrt C1 only if enough parallax as infinite point can have negative depth
-        if(lmk_C1(2) <= 0 && cosParallax < 0.99998){
+        if(lmk_C1(2) <= 0 || cosParallax > 0.99998){
+            inliers.push_back(0);
             continue;
         } 
 
-        // check reprojection error on C1
-        // Eigen::Vector2d p2d_C1;
-        // if (! cam->project(lmk_C1, p2d_C1)) continue;
-        // double square_error1 = (u0 - p2d_C1(0))*(u0 - p2d_C1(0)) + (v0 - p2d_C1(1))*(v0 - p2d_C1(1)); 
-        // if(square_error1 > 1800){
-        //     continue;
-        // }
-        // std::cout << "reproj pixel1" << std::endl;
-        // std::cout << square_error1 << std::endl;
-
-
         // check depth wrt C2 as well
         Eigen::Vector3d lmk_C2 = R * lmk_C1 + t;
-        if(lmk_C2(2) <= 0 && cosParallax < 0.99998){
+        if(lmk_C2(2) <= 0 || cosParallax > 0.99998){
+            inliers.push_back(0);
             continue;
         }
-        // std::cout << "depth C2 " << std::endl;
-        // std::cout << lmk_C2 << std::endl;
-        // std::cout << "depth C1 " << std::endl;
-        // std::cout << lmk_C1 << std::endl;
-
-
-        // check reprojection error on C1
-        // Eigen::Vector2d p2d_C2;
-        // if (! cam->project(lmk_C2, p2d_C2)) continue;
-        // double square_error2 = (u1 - p2d_C2(0))*(u1 - p2d_C2(0)) + (v1 - p2d_C2(1))*(v1 - p2d_C2(1));
-        // if(square_error2 > 1800){
-        //     continue;
-        // }
-        // std::cout << "reproj pixel2" << std::endl;
-        // std::cout << p2d_C2 << std::endl;
-        // std::cout << "orig pixel C2" << std::endl;
-        // std::cout << kp_2_matched[i] << std::endl;
-
+        inliers.push_back(1);
         inliers_number++;
     }
 
     return inliers_number;
 }
 
-void recoverPoseEssential(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
+bool recoverPoseEssential(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, Eigen::Vector3d &t, Eigen::Matrix3d &R, std::vector<int> inliers){
     // recover displacement from E
     // We then have x2 = Rx1 + t
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(E, Eigen::ComputeFullU | Eigen::ComputeFullV);
     Eigen::Matrix3d U = svd.matrixU();
-    Eigen::Matrix3d V = svd.matrixV();
+    Eigen::Matrix3d Vt = svd.matrixV().transpose();
 
     // Let's compute the possible rotation and translation 
     Eigen::Matrix3d W;
@@ -149,53 +146,60 @@ void recoverPoseEssential(Eigen::Matrix3d E, std::shared_ptr<ASensor> &cam, std:
         -1, 0, 0,
         0, 0, 1;
     std::vector<int> new_inliers;
-
-    if (U.determinant() < 0) U *= -1;
-    if (V.determinant() < 0) V *= -1;
     
-    Eigen::Matrix3d R1 = U * W * V.transpose();
-    Eigen::Vector3d t1 = 100*U.col(2);
+    Eigen::Matrix3d R1 = U * W * Vt;
+    if (R1.determinant() < 0)
+            R1 = -R1;
+    Eigen::Vector3d t1 = U.col(2);
+    t1 = t1 / t1.norm();
 
-    Eigen::Matrix3d R2 = U * W.transpose() * V.transpose();
+    Eigen::Matrix3d R2 = U * W.transpose() * Vt;
+    if (R2.determinant() < 0)
+            R2 = -R2;
     Eigen::Vector3d t2 = -t1;
+    int nInliers1, nInliers2, nInliers3, nInliers4;
+    std::vector<int> inliers1, inliers2, inliers3, inliers4;
 
-    int nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers);
-    std::cout << "Ninliers1" << std::endl;
-    std::cout << nInliers1 << std::endl;
-    std::cout << R1 << std::endl;
-    std::cout << t1 << std::endl;
-    int nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers);
-    std::cout << "Ninliers2" << std::endl;
-    std::cout << nInliers2 << std::endl;
-    std::cout << R1 << std::endl;
-    std::cout << t2 << std::endl;
-    int nInliers3 = checkRT(cam, R2, t1, kp_1_matched, kp_2_matched, inliers);
-    std::cout << "Ninliers3" << std::endl;
-    std::cout << nInliers3 << std::endl;
-    std::cout << R2 << std::endl;
-    std::cout << t1 << std::endl;
-    int nInliers4 = checkRT(cam, R2, t2, kp_1_matched, kp_2_matched, inliers);
-    std::cout << "Ninliers4" << std::endl;
-    std::cout << nInliers4 << std::endl;
-    std::cout << R2 << std::endl;
-    std::cout << t2 << std::endl;
+    Eigen::Vector3d rpy_R1 = rotationMatrixToEulerAnglesEigen(R1);
+    if (std::abs(rpy_R1(0)) < 90 && std::abs(rpy_R1(1)) < 90 && std::abs(rpy_R1(2)) < 90){
+        nInliers1 = checkRT(cam, R1, t1, kp_1_matched, kp_2_matched, inliers1);
+        nInliers2 = checkRT(cam, R1, t2, kp_1_matched, kp_2_matched, inliers2);
+    } else{
+        nInliers1 = 0;
+        nInliers2 = 0;
+    }
+
+    Eigen::Vector3d rpy_R2 = rotationMatrixToEulerAnglesEigen(R2);
+    if (std::abs(rpy_R2(0)) < 90 && std::abs(rpy_R2(1)) < 90 && std::abs(rpy_R2(2)) < 90){
+        nInliers3 = checkRT(cam, R2, t1, kp_1_matched, kp_2_matched, inliers3);
+        nInliers4 = checkRT(cam, R2, t2, kp_1_matched, kp_2_matched, inliers4);
+    } else{
+        nInliers3 = 0;
+        nInliers4 = 0;
+    }
 
     int maxInliers = std::max(nInliers1,std::max(nInliers2, std::max(nInliers3, nInliers4)));
+    if (maxInliers == 0) return false;
 
     // Select the transformation with the biggest nInliers
     if (maxInliers == nInliers1){
         R = R1;
         t = t1;
+        inliers = inliers1;
     } else if (maxInliers == nInliers2){
         R = R1;
         t = t2;
+        inliers = inliers2;
     } else if (maxInliers == nInliers3){
         R = R2;
         t = t1;
+        inliers = inliers3;
     } else if (maxInliers == nInliers4){
         R = R2;
         t = t2;
+        inliers = inliers4;
     }
+    return true;
 }
 
 void EssentialRANSAC(std::vector<cv::Point2d> kp_1_matched, std::vector<cv::Point2d> kp_2_matched, std::shared_ptr<ASensor> &cam, Eigen::Matrix3d &best_E,

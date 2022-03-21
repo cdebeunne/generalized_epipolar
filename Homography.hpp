@@ -252,7 +252,11 @@ bool recoverPoseHomography(std::vector<cv::Point2d> kp_1_matched, std::vector<cv
     for(size_t i=0; i<8; i++)
     {
         std::vector<int> inliers;
-        int nInliers = checkRT(cam, vR[i], vt[i], kp_1_matched, kp_2_matched, inliers);
+        Eigen::Vector3d rpy_R = rotationMatrixToEulerAnglesEigen(vR[i]);
+        int nInliers = 0;
+        if (std::abs(rpy_R(0)) < 90 && std::abs(rpy_R(1)) < 90 && std::abs(rpy_R(2)) < 90){
+            nInliers = checkRT(cam, vR[i], vt[i], kp_1_matched, kp_2_matched, inliers);
+        } 
         std::cout << "NInliers for R :" << std::endl;
         std::cout << vR[i] << std::endl;
         std::cout << " And t :" << std::endl;

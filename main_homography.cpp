@@ -37,6 +37,9 @@ int main(int argc, char** argv){
     K << 458.654, 0, 367.215,
          0, 457.296, 248.375,
          0, 0, 1;
+    K << 984.243, 0, 690,
+         0, 980.814, 233.196,
+         0, 0, 1;
     cv::Mat K_cv = (cv::Mat_<float>(3,3) << K(0,0), 0, K(0,2),
                0, K(1,1), K(1,2),
                0, 0, 1);
@@ -44,10 +47,11 @@ int main(int argc, char** argv){
     cv::Point2d principal_pt(K(0,2), K(1,2));
     std::shared_ptr<ASensor> cam(new ASensor(K));
     
+    std::string image_path0 = "/media/ce.debeunne/HDD/datasets/KITTI/2011_09_26/2011_09_26_drive_0079_sync/image_00/data/0000000000.png";
+    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/KITTI/2011_09_26/2011_09_26_drive_0079_sync/image_00/data/0000000001.png";
 
-    std::string image_path0 = "/media/ce.debeunne/HDD/datasets/EUROC/cam_april/mav0/cam0/data/1403709414337837056.png";
-    //std::string image_path1 = "/home/cesar/Documents/phd/datasets/EUROC/MH_01_easy/mav0/cam0/data/1403636579963555584.png";
-    std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/cam_april/mav0/cam1/data/1403709414337837056.png";
+    // std::string image_path0 = "/media/ce.debeunne/HDD/datasets/EUROC/cam_april/mav0/cam0/data/1403709414337837056.png";
+    // std::string image_path1 = "/media/ce.debeunne/HDD/datasets/EUROC/cam_april/mav0/cam1/data/1403709414337837056.png";
 
     cv::Mat img_1 = cv::imread(image_path0, cv::IMREAD_COLOR);
     cv::Mat img_2 = cv::imread(image_path1, cv::IMREAD_COLOR);
